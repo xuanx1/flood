@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLOOD · joyplot of the drowned century</title>
+<style>
+  :root {
+    --bg:        #06070a;
+    --bg-deep:   #03040680;
+    --ink:       #e8e0c6;
+    --ink-dim:   #8a8268;
+    --dim:       #524a36;
+    --rule:      rgba(232,224,198,0.16);
+    --water:     #e53e2a;
+    --water-hi:  #ff6a4d;
+    --water-deep:#7a1410;
+    --amber:     #f3a838;
+    --cyan:      #4ad0d0;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--ink);
+    font-family: ui-monospace, 'SF Mono', SFMono-Regular, 'Cascadia Mono', 'Roboto Mono', Menlo, Monaco, Consolas, monospace;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+  }
+  #stage { position: fixed; inset: 0; }
+  canvas#joy { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* atmospheric overlays */
+  .scanlines {
+    position: fixed; inset: 0; pointer-events: none; z-index: 6;
+    mix-blend-mode: overlay; opacity: 0.22;
+    background: repeating-linear-gradient(
+      180deg,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 2px,
+      rgba(255,255,255,0.07) 2px,
+      rgba(255,255,255,0.07) 3px
+    );
+  }
+  .vignette {
+    position: fixed; inset: 0; pointer-events: none; z-index: 5;
+    background:
+      radial-gradient(ellipse 110% 90% at 50% 50%, transparent 40%, rgba(0,0,0,0.55) 100%),
+      linear-gradient(180deg, rgba(0,0,0,0.55) 0%, transparent 18%, transparent 80%, rgba(0,0,0,0.7) 100%);
+  }
+  .noise {
+    position: fixed; inset: 0; pointer-events: none; z-index: 7; opacity: 0.06;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    mix-blend-mode: screen;
+  }
+
+  /* HUD */
+  .hud { position: fixed; z-index: 10; color: var(--ink); pointer-events: none; }
+  .hud * { pointer-events: auto; }
+  .hud-top {
+    top: 22px; left: 36px; right: 36px;
+    display: flex; justify-content: space-between; align-items: center; gap: 36px;
+  }
+  .brand { display: flex; align-items: center; gap: 18px; }
+  .brand h1 {
+    font-family: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-weight: 600; font-size: 26px; letter-spacing: 0.42em;
+    margin: 0; color: var(--ink); line-height: 1;
+  }
+  .brand .ed {
+    font-size: 9px; letter-spacing: 0.32em; color: var(--ink-dim);
+    border-left: 1px solid var(--rule); padding-left: 14px; line-height: 1.6;
+  }
+  .brand .sub { display: none; }
+  .meta {
+    text-align: right; font-size: 9px; letter-spacing: 0.22em; color: var(--ink-dim); line-height: 1.6;
+    display: grid; grid-template-columns: auto auto auto; gap: 4px 16px; align-items: baseline;
+  }
+  .meta > div { white-space: nowrap; }
+  .meta .k { color: var(--dim); }
+  .meta .live {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--water-hi);
+  }
+  .meta .live .blip {
+    width: 6px; height: 6px; background: var(--water-hi); border-radius: 50%;
+    box-shadow: 0 0 8px var(--water-hi); animation: blink 1.4s ease-in-out infinite;
+  }
+
+  /* side legend */
+  .ylabels {
+    position: fixed; left: 12px; top: 90px; bottom: 170px; z-index: 8;
+    display: flex; flex-direction: column; justify-content: space-between;
+    font-size: 8.5px; letter-spacing: 0.32em; color: var(--dim);
+    pointer-events: none;
+  }
+  .ylabels span { display: block; }
+  .ylabels .v {
+    color: var(--ink-dim); padding-right: 8px;
+  }
+  .xlabels {
+    position: fixed; left: 0; right: 0; top: 72px; z-index: 8;
+    display: flex; justify-content: space-between; padding: 0 80px;
+    font-size: 8.5px; letter-spacing: 0.3em; color: var(--dim);
+    pointer-events: none;
+  }
+
+  /* bottom panel — single horizontal strip overlaying the plot */
+  .hud-bottom {
+    bottom: 22px; left: 36px; right: 36px;
+    display: grid;
+    grid-template-columns: minmax(440px, 1fr) auto;
+    gap: 20px; align-items: stretch;
+  }
+  .panel {
+    position: relative;
+    background: rgba(8,7,11,0.42);
+    border: 1px solid var(--rule);
+    backdrop-filter: blur(8px);
+    padding: 14px 20px 12px;
+    overflow: hidden;
+  }
+  .panel-bg-chart {
+    position: absolute !important;
+    inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.95;
+  }
+  .panel > *:not(.panel-bg-chart) { position: relative; z-index: 1; }
+  .panel::before, .panel::after {
+    content: ''; position: absolute; width: 10px; height: 10px; border: 1px solid var(--ink-dim);
+  }
+  .panel::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .panel::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  .panel header {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 9.5px; letter-spacing: 0.3em; color: var(--ink-dim);
+    margin-bottom: 10px; gap: 24px;
+  }
+  .panel header span { white-space: nowrap; }
+  .panel header .lbl { display: flex; align-items: center; gap: 8px; }
+  .panel header .lbl .dot {
+    width: 7px; height: 7px; background: var(--water-hi); border-radius: 50%;
+    box-shadow: 0 0 8px var(--water-hi); animation: blink 1.6s ease-in-out infinite;
+  }
+
+  .slider-row { display: flex; align-items: baseline; gap: 18px; }
+  .slider-row .num {
+    font-family: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-weight: 500; font-size: 44px; letter-spacing: -0.02em;
+    color: var(--water-hi);
+    min-width: 108px;
+    line-height: 0.9;
+    text-shadow: 0 0 12px rgba(229,62,42,0.45);
+  }
+  .slider-row .num small {
+    font-size: 13px; color: var(--ink-dim); margin-left: 2px; letter-spacing: 0.18em; font-weight: 400;
+  }
+  .slider-row .yr {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    font-size: 9px; letter-spacing: 0.28em; color: var(--ink-dim);
+    border-left: 1px solid var(--rule); padding-left: 14px;
+  }
+  .slider-row .yr b {
+    font-family: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-weight: 500; font-size: 20px; letter-spacing: 0.05em; color: var(--ink);
+  }
+
+  .slider-track { margin-top: 12px; position: relative; height: 24px; }
+  .slider {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 2px; background: var(--rule); outline: none;
+    margin: 13px 0 0; padding: 0; cursor: ew-resize;
+  }
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 2px; height: 26px; background: var(--water-hi);
+    box-shadow: 0 0 12px var(--water-hi);
+    cursor: ew-resize; border-radius: 0;
+  }
+  .slider::-moz-range-thumb {
+    width: 2px; height: 26px; background: var(--water-hi);
+    box-shadow: 0 0 12px var(--water-hi); border: none;
+    cursor: ew-resize; border-radius: 0;
+  }
+  .slider-ticks {
+    position: absolute; inset: 0; pointer-events: none;
+    display: flex; justify-content: space-between;
+  }
+  .slider-ticks i {
+    display: block; width: 1px; height: 8px; background: var(--rule); align-self: flex-end;
+  }
+  .scale {
+    display: flex; justify-content: space-between; margin-top: 8px;
+    font-size: 9px; color: var(--dim); letter-spacing: 0.22em;
+  }
+  .scale .at {
+    color: var(--ink-dim);
+  }
+  .scale .at.dangerous { color: var(--water-hi); }
+
+  /* stats */
+  .stats {
+    display: flex; gap: 0; align-items: stretch;
+    background: rgba(8,7,11,0.42);
+    border: 1px solid var(--rule);
+    backdrop-filter: blur(8px);
+    position: relative;
+  }
+  .stats::before, .stats::after {
+    content: ''; position: absolute; width: 10px; height: 10px; border: 1px solid var(--ink-dim);
+  }
+  .stats::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .stats::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  .stat {
+    padding: 14px 18px 12px; min-width: 124px;
+    border-right: 1px solid var(--rule);
+    display: flex; flex-direction: column; justify-content: space-between; gap: 6px;
+  }
+  .stat:last-child { border-right: none; }
+  .stat .label { font-size: 9px; letter-spacing: 0.3em; color: var(--ink-dim); }
+  .stat .val {
+    font-family: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-weight: 500; font-size: 30px; letter-spacing: -0.01em;
+    line-height: 0.95; color: var(--ink);
+  }
+  .stat .val.danger { color: var(--water-hi); text-shadow: 0 0 10px rgba(229,62,42,0.4); }
+  .stat .val small { font-size: 14px; color: var(--ink-dim); letter-spacing: 0.04em; margin-left: 4px; }
+  .stat .unit { font-size: 9px; color: var(--dim); letter-spacing: 0.28em; margin-top: 6px; }
+  .stat .bar {
+    position: relative; height: 2px; background: var(--rule); margin-top: 8px;
+  }
+  .stat .bar i {
+    position: absolute; inset: 0; right: auto; background: var(--water-hi);
+    box-shadow: 0 0 6px var(--water-hi);
+    transition: width 0.18s ease-out;
+  }
+
+  /* corner crops */
+  .crop { position: fixed; width: 18px; height: 18px; border: 1px solid var(--ink-dim); z-index: 11; pointer-events: none; }
+  .crop-tl { top: 12px; left: 12px; border-right: none; border-bottom: none; }
+  .crop-tr { top: 12px; right: 12px; border-left: none; border-bottom: none; }
+  .crop-bl { bottom: 12px; left: 12px; border-right: none; border-top: none; }
+  .crop-br { bottom: 12px; right: 12px; border-left: none; border-top: none; }
+
+  /* big sweep timeline label across centre-right */
+  .epoch {
+    position: fixed; right: 36px; top: 50%; transform: translateY(-50%) rotate(180deg);
+    writing-mode: vertical-rl; text-orientation: mixed;
+    font-size: 9px; letter-spacing: 0.45em; color: var(--dim);
+    z-index: 8; pointer-events: none;
+  }
+
+  @keyframes blink {
+    0%, 60%, 100% { opacity: 1; }
+    70%, 90% { opacity: 0.25; }
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.88; }
+  }
+  .flicker { animation: flicker 4s ease-in-out infinite; }
+
+  /* auto-flood button inside Water Table header */
+  .panel header .hdr-r { display: inline-flex; align-items: center; gap: 14px; }
+  .panel header .hdr-tag { color: var(--ink-dim); }
+  .auto-btn {
+    background: transparent;
+    border: 1px solid var(--water-hi);
+    color: var(--water-hi);
+    padding: 4px 10px 4px 8px;
+    font: inherit;
+    font-size: 9.5px;
+    letter-spacing: 0.26em;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px;
+    text-transform: uppercase;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .auto-btn:hover { background: rgba(255,106,77,0.18); }
+  .auto-btn.on    { background: var(--water-hi); color: #0a0710; box-shadow: 0 0 14px rgba(255,106,77,0.6); }
+  .auto-btn .play-icon { font-size: 9px; line-height: 1; display: inline-block; width: 8px; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="joy"></canvas>
+</div>
+<div class="vignette"></div>
+<div class="scanlines"></div>
+<div class="noise"></div>
+
+<div class="crop crop-tl"></div>
+<div class="crop crop-tr"></div>
+<div class="crop crop-bl"></div>
+<div class="crop crop-br"></div>
+
+<div class="hud hud-top">
+  <div class="brand">
+    <h1>FLOOD</h1>
+    <span class="ed">EDITION&nbsp;0.7&nbsp;·&nbsp;ATLAS&nbsp;OF&nbsp;THE&nbsp;DROWNED&nbsp;CENTURY<br>JOYPLOT&nbsp;·&nbsp;HUMAN&nbsp;DENSITY&nbsp;PER&nbsp;0.6°&nbsp;LATITUDE</span>
+  </div>
+  <div class="meta">
+    <div><span class="k">SRC</span>&nbsp;WPP·24</div>
+    <div><span class="k">DEM</span>&nbsp;SRTM-30</div>
+    <div class="live"><span class="blip"></span>LIVE</div>
+    <div><span class="k">POP</span>&nbsp;8.1&nbsp;B</div>
+    <div><span class="k">PROJ</span>&nbsp;WGS-84</div>
+    <div><span class="k">TS</span>&nbsp;<span id="timestamp">—</span></div>
+  </div>
+</div>
+
+<div class="ylabels">
+  <span class="v">75°&nbsp;N&nbsp;·&nbsp;ARCTIC</span>
+  <span>50°&nbsp;N</span>
+  <span>25°&nbsp;N</span>
+  <span class="v">EQ&nbsp;·&nbsp;0°</span>
+  <span>25°&nbsp;S</span>
+  <span class="v">55°&nbsp;S&nbsp;·&nbsp;ANTARCTIC</span>
+</div>
+
+<div class="xlabels">
+  <span>180°&nbsp;W</span>
+  <span>120°&nbsp;W</span>
+  <span>60°&nbsp;W</span>
+  <span>0°</span>
+  <span>60°&nbsp;E</span>
+  <span>120°&nbsp;E</span>
+  <span>180°&nbsp;E</span>
+</div>
+
+<div class="epoch">∙ HOLOCENE&nbsp;⟶&nbsp;ANTHROPOCENE&nbsp;⟶&nbsp;THERMOCENE ∙</div>
+
+<div class="hud hud-bottom">
+  <div class="panel">
+    <svg class="panel-bg-chart" id="slr-chart" viewBox="0 0 200 70" preserveAspectRatio="none" aria-hidden="true">
+      <path id="slr-chart-line" d="" fill="none" stroke="rgba(229,62,42,0.22)" stroke-width="0.6" vector-effect="non-scaling-stroke"></path>
+      <path id="slr-chart-fill" d="" fill="rgba(229,62,42,0.06)" stroke="none"></path>
+      <line id="slr-chart-marker" x1="0" y1="0" x2="0" y2="70" stroke="var(--water-hi)" stroke-width="0.4" stroke-dasharray="2,1.5" vector-effect="non-scaling-stroke" opacity="0.65"></line>
+    </svg>
+    <header>
+      <span class="lbl"><span class="dot"></span> WATER&nbsp;TABLE</span>
+      <span class="hdr-r">
+        <span class="hdr-tag">Δh&nbsp;FROM&nbsp;MSL&nbsp;2000</span>
+        <button class="auto-btn" id="autoflood" type="button" aria-pressed="false">
+          <span class="play-icon" aria-hidden="true">▶</span>
+          <span class="play-label">AUTO</span>
+        </button>
+      </span>
+    </header>
+    <div class="slider-row">
+      <div class="num flicker"><span id="slr-val">0.0</span><small>m</small></div>
+      <div class="yr">
+        YEAR · IPCC SCENARIO
+        <b id="year-tag">2025</b>
+      </div>
+    </div>
+    <div class="slider-track">
+      <input type="range" id="slr" class="slider" min="0" max="70" step="0.1" value="0">
+      <div class="slider-ticks" id="ticks"></div>
+    </div>
+    <div class="scale" id="scale-row">
+      <span class="at">0m · today</span>
+      <span class="at">+1m · IPCC SSP5</span>
+      <span class="at">+5m · MULTI-CENT</span>
+      <span class="at">+15m · WAIS</span>
+      <span class="at">+30m · GIS+WAIS</span>
+      <span class="at dangerous">+70m · MAX MELT</span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="label">DISPLACED</div>
+      <div class="val danger"><span id="displaced">0</span><small id="displaced-unit">M</small></div>
+      <div class="unit">HUMANS&nbsp;∙&nbsp;LIVING</div>
+      <div class="bar"><i id="displaced-bar" style="width:0%"></i></div>
+    </div>
+    <div class="stat">
+      <div class="label">URBANA&nbsp;LOST</div>
+      <div class="val danger"><span id="cities-lost">0</span><small>/<span id="cities-total">0</span></small></div>
+      <div class="unit">MEGACITIES&nbsp;DROWNED</div>
+      <div class="bar"><i id="cities-bar" style="width:0%"></i></div>
+    </div>
+    <div class="stat">
+      <div class="label">REMAINING&nbsp;DRY</div>
+      <div class="val"><span id="remaining">0</span><small id="remaining-unit">B</small></div>
+      <div class="unit">HUMANS&nbsp;ON&nbsp;LAND</div>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="joyplot.js"></script>
+<script src="tweaks.js"></script>
+</body>
+</html>
