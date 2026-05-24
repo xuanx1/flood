@@ -1,9 +1,8 @@
-# FLOOD
+# [FLOOD](https://xuanx1.github.io/flood/Flood%20Joyplot.html)
 
-**Atlas of the Drowned Century** — a dystopian-futuristic joyplot of world population, with rising-sea overlay — drag the slider and watch the world drown.
+**Atlas of the Drowned Century** — a dystopian-futuristic [joyplot](https://xuanx1.github.io/flood/Flood%20Joyplot.html) of world population, with rising-sea overlay — drag the slider and watch the world drown.
 
-
-![](screenshots/01-v7.png)
+<img width="1919" height="917" alt="flood" src="https://github.com/user-attachments/assets/fcc05299-afe8-4e7e-b0ec-15deada5d546" />
 
 Each horizontal ridge is a 0.6° latitude band of world population density. City peaks rise sharply out of a rural baseline that traces every continent. As the **water table** slider rises (0 → 70 m of sea-level rise), coastal megacities turn red and get marked drowned, and the world's projected population shifts under per-region growth/decline curves.
 
